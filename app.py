@@ -36,7 +36,7 @@ def load_data(query):
 
 # 4. Fetch Master Data
 with st.spinner("Streaming data from Snowflake..."):
-    sql_query = "SELECT * FROM trending_analytics_db.ai_telemetry.ai_agent_interactions LIMIT 1000;"
+    sql_query = "SELECT * FROM trending_analytics_db.ai_telemetry.ai_agent_interactions LIMIT 10000;"
     df_master = load_data(sql_query)
 
 # 5. LEFT SIDEBAR FILTERS (Controls everything below)
