@@ -2,3 +2,4 @@ streamlit
 snowflake-connector-python
 pandas
 matplotlib
+import altair as alt
