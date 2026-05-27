@@ -63,3 +63,12 @@ else:
 
 # Display clean interactive table layout
 st.dataframe(filtered_df, use_container_width=True)
+
+import matplotlib.pyplot as plt
+
+# 1. Create a standard Matplotlib figure
+fig, ax = plt.subplots()
+df["USER_PERSONA"].value_counts().plot(kind="bar", ax=ax)
+
+# 2. Render it inside your Streamlit app
+st.pyplot(fig)
