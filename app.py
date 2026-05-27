@@ -90,7 +90,8 @@ if selected_persona != "All":
     filtered_df = filtered_df[filtered_df["USER_PERSONA"] == selected_persona]
 if selected_device != "All":
     filtered_df = filtered_df[filtered_df["DEVICE_TYPE"] == selected_device]
-
+    
+import altair as alt
 st.subheader("📈 Trending Visual Intelligence Maps")
 chart_col1, chart_col2 = st.columns(2)
 
