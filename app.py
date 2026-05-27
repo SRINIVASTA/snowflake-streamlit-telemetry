@@ -1,6 +1,7 @@
 import streamlit as st
 import snowflake.connector
 import pandas as pd
+import altair as alt  # Added for premium charts
 
 # 1. Page Configuration
 st.set_page_config(page_title="Snowflake Telemetry Data Explorer", layout="wide")
@@ -29,7 +30,7 @@ except Exception as e:
 def load_data(query):
     with conn.cursor() as cur:
         cur.execute(query)
-        columns = [col[0] for col in cur.description] 
+        columns = [col for col in cur.description] 
         return pd.DataFrame(cur.fetchall(), columns=columns)
 
 # 4. Fetch Master Data
@@ -74,30 +75,44 @@ else:
 st.markdown("---")
 
 
-# 7. TRENDING VISUAL MAPS (Placing charts first as requested)
+# 7. TRENDING VISUAL MAPS (Premium Altair Charts First)
 st.subheader("📈 Trending Visual Intelligence Maps")
-chart_col1, chart_col2 = st.columns(2)
 
-with chart_col1:
-    st.write("**Activity Distribution by Region**")
-    if "GEO_LOCATION" in df_filtered.columns and len(df_filtered) > 0:
-        geo_counts = df_filtered["GEO_LOCATION"].value_counts()
-        st.bar_chart(geo_counts)
-    else:
-        st.info("No regional data matches current filters.")
+if len(df_filtered) > 0:
+    chart_col1, chart_col2 = st.columns(2)
 
-with chart_col2:
-    st.write("**Access Methods by Device Type**")
-    if "DEVICE_TYPE" in df_filtered.columns and len(df_filtered) > 0:
-        device_counts = df_filtered["DEVICE_TYPE"].value_counts()
-        st.bar_chart(device_counts)
-    else:
-        st.info("No device data matches current filters.")
+    with chart_col1:
+        st.write("**Top Interacting AI Personas**")
+        if "USER_PERSONA" in df_filtered.columns:
+            st.altair_chart(
+                alt.Chart(df_filtered).mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
+                    x=alt.X('USER_PERSONA:N', title='User Persona', sort='-y'),
+                    y=alt.Y('count():Q', title='Total Interactions'),
+                    color=alt.Color('USER_PERSONA:N', legend=None),
+                    tooltip=['USER_PERSONA', 'count()']
+                ).interactive(), 
+                use_container_width=True
+            )
+
+    with chart_col2:
+        st.write("**Session Duration Insights by Device**")
+        if "EVENT_TIMESTAMP" in df_filtered.columns and "SESSION_DURATION_SEC" in df_filtered.columns:
+            st.altair_chart(
+                alt.Chart(df_filtered).mark_circle(size=60).encode(
+                    x=alt.X('EVENT_TIMESTAMP:T', title='Event Timestamp'),
+                    y=alt.Y('SESSION_DURATION_SEC:Q', title='Session Duration (Seconds)'),
+                    color=alt.Color('DEVICE_TYPE:N', title='Device Type'),
+                    tooltip=['USER_PERSONA', 'DEVICE_TYPE', 'SESSION_DURATION_SEC']
+                ).interactive(),
+                use_container_width=True
+            )
+else:
+    st.info("No interactive data matches current sidebar filters.")
 
 st.markdown("---")
 
 
-# 8. TELEMETRY DATA TABLE (Placing raw data at the bottom)
+# 8. TELEMETRY DATA TABLE (Raw data at the bottom)
 st.subheader("📋 Raw Telemetry Data Stream")
 
 # Text search bar specifically for filtering the current table rows
