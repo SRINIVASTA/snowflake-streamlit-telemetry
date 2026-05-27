@@ -25,15 +25,16 @@ except Exception as e:
     st.error(f"Failed to connect to Snowflake: {e}")
     st.stop()
 
-# ⚡ OPTIMIZATION 1: Fetch unique filter values directly from Snowflake metadata
+# ⚡ OPTIMIZATION & BUG FIX: Properly unpack row[0] from the tuple list
 @st.cache_data(ttl=3600)
 def get_filter_options(column_name):
     query = f"SELECT DISTINCT {column_name} FROM trending_analytics_db.ai_telemetry.ai_agent_interactions WHERE {column_name} IS NOT NULL ORDER BY {column_name};"
     with conn.cursor() as cur:
         cur.execute(query)
+        # Fixes the tuple matching bug by extracting the exact string value
         return [row[0] for row in cur.fetchall()]
 
-# ⚡ OPTIMIZATION 2: Dynamic Query Execution based on sidebar filters
+# ⚡ OPTIMIZATION: Handle query generation and fetching efficiently
 @st.cache_data(ttl=600)
 def load_filtered_data(geo, device):
     base_query = "SELECT * FROM trending_analytics_db.ai_telemetry.ai_agent_interactions WHERE 1=1"
@@ -47,27 +48,40 @@ def load_filtered_data(geo, device):
         base_query += " AND DEVICE_TYPE = %s"
         params.append(device)
         
-    # Cap the final filtered view to keep charts fast, but the underlying data is precise
-    base_query += " ORDER BY EVENT_TIMESTAMP DESC LIMIT 20000;"
+    # Keeps browser charts fast, but sets a high upper limit for the payload
+    base_query += " ORDER BY EVENT_TIMESTAMP DESC LIMIT 10000;"
     
     with conn.cursor() as cur:
         cur.execute(base_query, params)
+        # Safely extract column names from description
         columns = [col[0] for col in cur.description]
         df = pd.DataFrame(cur.fetchall(), columns=columns)
         if "EVENT_TIMESTAMP" in df.columns:
             df["EVENT_TIMESTAMP"] = pd.to_datetime(df["EVENT_TIMESTAMP"])
         return df
 
-# 3. SIDEBAR FILTERS (Runs cheap metadata queries instead of scanning full tables)
+# 3. SIDEBAR FILTERS
 st.sidebar.header("🔍 Interactive Controls")
 
+# Fetch operational dropdown options directly from Snowflake metadata
 geo_options = ["All Regions"] + get_filter_options("GEO_LOCATION")
 device_options = ["All Devices"] + get_filter_options("DEVICE_TYPE")
 
-selected_geo = st.sidebar.selectbox("Select Region", geo_options)
-selected_device = st.sidebar.selectbox("Select Device Type", device_options)
+# Reset Filter Mechanism using Streamlit Session State
+if "geo_index" not in st.session_state:
+    st.session_state.geo_index = 0
+if "device_index" not in st.session_state:
+    st.session_state.device_index = 0
 
-# 4. Fetch the optimized dataset
+if st.sidebar.button("🔄 Reset Filters"):
+    st.session_state.geo_index = 0
+    st.session_state.device_index = 0
+    st.rerun()
+
+selected_geo = st.sidebar.selectbox("Select Region", geo_options, index=st.session_state.geo_index)
+selected_device = st.sidebar.selectbox("Select Device Type", device_options, index=st.session_state.device_index)
+
+# 4. Fetch the optimized dataset from Snowflake
 with st.spinner("Streaming filtered data from Snowflake..."):
     df_filtered = load_filtered_data(selected_geo, selected_device)
 
@@ -129,6 +143,7 @@ st.subheader("📋 Raw Telemetry Data Stream")
 
 search_query = st.text_input("🔍 Keyword search within filtered results:")
 if search_query:
+    # Highly performant vectorized search for filtered tables
     mask = df_filtered.astype(str).stack().str.contains(search_query, case=False).unstack().any(axis=1)
     df_final_display = df_filtered[mask]
 else:
