@@ -72,3 +72,50 @@ df["USER_PERSONA"].value_counts().plot(kind="bar", ax=ax)
 
 # 2. Render it inside your Streamlit app
 st.pyplot(fig)
+
+# Create a sidebar navigation panel
+st.sidebar.header("🔍 Global Data Filters")
+
+# Extract unique values for filtering
+available_personas = ["All"] + sorted(df["USER_PERSONA"].unique().tolist())
+available_devices = ["All"] + sorted(df["DEVICE_TYPE"].unique().tolist())
+
+# Create the visual dropdown selectors
+selected_persona = st.sidebar.selectbox("Filter by User Persona", available_personas)
+selected_device = st.sidebar.selectbox("Filter by Device Type", available_devices)
+
+# Apply filters dynamically to the dataframe
+filtered_df = df.copy()
+if selected_persona != "All":
+    filtered_df = filtered_df[filtered_df["USER_PERSONA"] == selected_persona]
+if selected_device != "All":
+    filtered_df = filtered_df[filtered_df["DEVICE_TYPE"] == selected_device]
+
+st.subheader("📈 Trending Visual Intelligence Maps")
+chart_col1, chart_col2 = st.columns(2)
+
+with chart_col1:
+    st.write("**Top Interacting AI Personas**")
+    # Interactive Altair Bar Chart with tooltips
+    st.altair_chart(
+        alt.Chart(filtered_df).mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
+            x=alt.X('USER_PERSONA:N', title='User Persona', sort='-y'),
+            y=alt.Y('count():Q', title='Total Interactions'),
+            color=alt.Color('USER_PERSONA:N', legend=None),
+            tooltip=['USER_PERSONA', 'count()']
+        ).interactive(), 
+        use_container_width=True
+    )
+
+with chart_col2:
+    st.write("**Session Duration Insights by Device**")
+    # Interactive Scatter Plot
+    st.altair_chart(
+        alt.Chart(filtered_df).mark_circle(size=60).encode(
+            x='EVENT_TIMESTAMP:T',
+            y='SESSION_DURATION_SEC:Q',
+            color='DEVICE_TYPE:N',
+            tooltip=['USER_PERSONA', 'DEVICE_TYPE', 'SESSION_DURATION_SEC']
+        ).interactive(),
+        use_container_width=True
+    )
