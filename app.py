@@ -7,7 +7,7 @@ import altair as alt
 st.set_page_config(page_title="Snowflake Telemetry Data Explorer", layout="wide")
 st.title("📊 Snowflake Live Data Engine")
 
-# 2. Establish Secure Connection to Snowflake Cloud Data Platform
+# 2. Connection Initialization
 @st.cache_resource
 def init_connection():
     return snowflake.connector.connect(
@@ -25,49 +25,62 @@ except Exception as e:
     st.error(f"Failed to connect to Snowflake: {e}")
     st.stop()
 
-# 3. Optimized Query Function with Streamlit Cache 
-@st.cache_data(ttl=600)
-def load_data(query):
+# ⚡ OPTIMIZATION 1: Fetch unique filter values directly from Snowflake metadata
+@st.cache_data(ttl=3600)
+def get_filter_options(column_name):
+    query = f"SELECT DISTINCT {column_name} FROM trending_analytics_db.ai_telemetry.ai_agent_interactions WHERE {column_name} IS NOT NULL ORDER BY {column_name};"
     with conn.cursor() as cur:
         cur.execute(query)
-        # 🛡️ FIXED TRICKY BUG HERE: Extracts just the column string name out of the tuple
-        columns = [col[0] for col in cur.description] 
-        return pd.DataFrame(cur.fetchall(), columns=columns)
+        return [row[0] for row in cur.fetchall()]
 
-# 4. Fetch Master Data
-with st.spinner("Streaming data from Snowflake..."):
-    sql_query = "SELECT * FROM trending_analytics_db.ai_telemetry.ai_agent_interactions LIMIT 10000;"
-    df_master = load_data(sql_query)
+# ⚡ OPTIMIZATION 2: Dynamic Query Execution based on sidebar filters
+@st.cache_data(ttl=600)
+def load_filtered_data(geo, device):
+    base_query = "SELECT * FROM trending_analytics_db.ai_telemetry.ai_agent_interactions WHERE 1=1"
+    params = []
+    
+    if geo != "All Regions":
+        base_query += " AND GEO_LOCATION = %s"
+        params.append(geo)
+        
+    if device != "All Devices":
+        base_query += " AND DEVICE_TYPE = %s"
+        params.append(device)
+        
+    # Cap the final filtered view to keep charts fast, but the underlying data is precise
+    base_query += " ORDER BY EVENT_TIMESTAMP DESC LIMIT 20000;"
+    
+    with conn.cursor() as cur:
+        cur.execute(base_query, params)
+        columns = [col[0] for col in cur.description]
+        df = pd.DataFrame(cur.fetchall(), columns=columns)
+        if "EVENT_TIMESTAMP" in df.columns:
+            df["EVENT_TIMESTAMP"] = pd.to_datetime(df["EVENT_TIMESTAMP"])
+        return df
 
-# 5. LEFT SIDEBAR FILTERS (Controls everything below)
+# 3. SIDEBAR FILTERS (Runs cheap metadata queries instead of scanning full tables)
 st.sidebar.header("🔍 Interactive Controls")
 
-# Build unique filter lists dynamically from the data
-geo_options = ["All Regions"] + sorted(df_master["GEO_LOCATION"].unique().tolist()) if "GEO_LOCATION" in df_master.columns else ["All Regions"]
-device_options = ["All Devices"] + sorted(df_master["DEVICE_TYPE"].unique().tolist()) if "DEVICE_TYPE" in df_master.columns else ["All Devices"]
+geo_options = ["All Regions"] + get_filter_options("GEO_LOCATION")
+device_options = ["All Devices"] + get_filter_options("DEVICE_TYPE")
 
 selected_geo = st.sidebar.selectbox("Select Region", geo_options)
 selected_device = st.sidebar.selectbox("Select Device Type", device_options)
 
-# Apply Sidebar Selections to Filter Data Dynamically
-df_filtered = df_master.copy()
+# 4. Fetch the optimized dataset
+with st.spinner("Streaming filtered data from Snowflake..."):
+    df_filtered = load_filtered_data(selected_geo, selected_device)
 
-if selected_geo != "All Regions":
-    df_filtered = df_filtered[df_filtered["GEO_LOCATION"] == selected_geo]
-
-if selected_device != "All Devices":
-    df_filtered = df_filtered[df_filtered["DEVICE_TYPE"] == selected_device]
-
-
-# 6. VISUAL METRICS ROW (Updates based on sidebar)
+# 5. VISUAL METRICS ROW
 col1, col2, col3 = st.columns(3)
-col1.metric("Filtered Records", len(df_filtered))
-if "SESSION_DURATION_SEC" in df_filtered.columns and len(df_filtered) > 0:
+col1.metric("Available Records (View)", f"{len(df_filtered):,}")
+
+if "SESSION_DURATION_SEC" in df_filtered.columns and not df_filtered.empty:
     col2.metric("Avg Session Duration", f"{int(df_filtered['SESSION_DURATION_SEC'].mean())}s")
 else:
     col2.metric("Avg Session Duration", "0s")
     
-if "AI_AGENT_ASSISTED" in df_filtered.columns and len(df_filtered) > 0:
+if "AI_AGENT_ASSISTED" in df_filtered.columns and not df_filtered.empty:
     ai_pct = (df_filtered['AI_AGENT_ASSISTED'].astype(str).str.upper() == 'TRUE').mean() * 100
     col3.metric("AI Assisted Rate", f"{ai_pct:.1f}%")
 else:
@@ -75,11 +88,10 @@ else:
 
 st.markdown("---")
 
-
-# 7. TRENDING VISUAL MAPS (Altair Interactive Visual Charts First)
+# 6. TRENDING VISUAL MAPS
 st.subheader("📈 Trending Visual Intelligence Maps")
 
-if len(df_filtered) > 0:
+if not df_filtered.empty:
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
@@ -112,14 +124,12 @@ else:
 
 st.markdown("---")
 
-
-# 8. TELEMETRY DATA TABLE (Raw data at the bottom)
+# 7. TELEMETRY DATA TABLE
 st.subheader("📋 Raw Telemetry Data Stream")
 
-# Text search bar specifically for filtering the current table rows
 search_query = st.text_input("🔍 Keyword search within filtered results:")
 if search_query:
-    mask = df_filtered.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
+    mask = df_filtered.astype(str).stack().str.contains(search_query, case=False).unstack().any(axis=1)
     df_final_display = df_filtered[mask]
 else:
     df_final_display = df_filtered
