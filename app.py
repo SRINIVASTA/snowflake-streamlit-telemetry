@@ -1,7 +1,7 @@
 import streamlit as st
 import snowflake.connector
 import pandas as pd
-import altair as alt  # Added for premium charts
+import altair as alt
 
 # 1. Page Configuration
 st.set_page_config(page_title="Snowflake Telemetry Data Explorer", layout="wide")
@@ -30,7 +30,8 @@ except Exception as e:
 def load_data(query):
     with conn.cursor() as cur:
         cur.execute(query)
-        columns = [col for col in cur.description] 
+        # 🛡️ FIXED TRICKY BUG HERE: Extracts just the column string name out of the tuple
+        columns = [col[0] for col in cur.description] 
         return pd.DataFrame(cur.fetchall(), columns=columns)
 
 # 4. Fetch Master Data
@@ -75,7 +76,7 @@ else:
 st.markdown("---")
 
 
-# 7. TRENDING VISUAL MAPS (Premium Altair Charts First)
+# 7. TRENDING VISUAL MAPS (Altair Interactive Visual Charts First)
 st.subheader("📈 Trending Visual Intelligence Maps")
 
 if len(df_filtered) > 0:
@@ -107,7 +108,7 @@ if len(df_filtered) > 0:
                 use_container_width=True
             )
 else:
-    st.info("No interactive data matches current sidebar filters.")
+    st.info("No data elements currently match your active dropdown sidebar filters.")
 
 st.markdown("---")
 
